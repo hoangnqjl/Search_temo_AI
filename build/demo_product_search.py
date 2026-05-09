@@ -52,20 +52,51 @@ for text in product_texts:
 
 product_embeddings = np.vstack(product_embeddings)
 
-# 5. Hàm tìm kiếm dựa trên độ tương đồng Cosine
-def semantic_search(query, top_n=5):
-    query_vec = get_embedding(query)
+# 5. Hàm lọc ý định bằng ViT5 (Giúp tìm kiếm chính xác hơn)
+def refine_query(query):
+    # Đường dẫn tới model ViT5 đã train trên Drive
+    vit5_path = "/content/drive/MyDrive/Temo/search/file_train/best_model"
+    if not os.path.exists(vit5_path):
+        return query # Nếu chưa train xong thì dùng query gốc
     
-    # Tính toán Cosine Similarity
+    try:
+        from transformers import T5ForConditionalGeneration, T5Tokenizer
+        # Load model ViT5
+        v_tokenizer = T5Tokenizer.from_pretrained("VietAI/vit5-base", legacy=False)
+        v_model = T5ForConditionalGeneration.from_pretrained(vit5_path)
+        v_model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        input_text = "intent: " + query
+        inputs = v_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True).to(v_model.device)
+        
+        with torch.no_grad():
+            outputs = v_model.generate(**inputs, max_length=50)
+            refined = v_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            if refined.strip():
+                print(f"✨ AI hiểu nhu cầu: '{refined}'")
+                return refined
+        return query
+    except Exception as e:
+        return query
+
+# 6. Hàm tìm kiếm dựa trên độ tương đồng Cosine
+def semantic_search(query, top_n=5):
+    # Bước 1: Dùng ViT5 để "lọc" ý định (nếu có model)
+    clean_query = refine_query(query)
+    
+    # Bước 2: Dùng SBERT để lấy vector của câu hỏi đã lọc
+    query_vec = get_embedding(clean_query)
+    
+    # Bước 3: Tính toán Cosine Similarity
     norm_products = np.linalg.norm(product_embeddings, axis=1)
     norm_query = np.linalg.norm(query_vec)
     similarities = np.dot(product_embeddings, query_vec.T).flatten() / (norm_products * norm_query)
     
     # Lấy top N kết quả cao nhất
     top_indices = similarities.argsort()[-top_n:][::-1]
-    return df.iloc[top_indices], similarities[top_indices]
+    return df.iloc[top_indices], similarities[top_indices], clean_query
 
-# 6. Giao diện Demo tương tác
+# 7. Giao diện Demo tương tác
 print("\n" + "="*50)
 print("🌟 CHÀO MỪNG ĐẾN VỚI HỆ THỐNG TÌM KIẾM NGỮ NGHĨA MAROMART 🌟")
 print("="*50)
@@ -77,13 +108,13 @@ while True:
         print("Tạm biệt!")
         break
     
-    results, scores = semantic_search(user_query)
+    results, scores, clean_q = semantic_search(user_query)
     
-    print(f"\n--- Top {len(results)} sản phẩm phù hợp nhất cho: '{user_query}' ---")
+    print(f"\n--- Top {len(results)} sản phẩm phù hợp cho: '{clean_q}' ---")
     for i, (idx, row) in enumerate(results.iterrows()):
         score_percent = scores[i] * 100
         print(f"{i+1}. [{row['productName']}]")
         print(f"   💰 Giá: {row['productPrice']:,}đ | 🏷️ Thương hiệu: {row['productBrand']}")
         print(f"   📈 Độ khớp: {score_percent:.2f}%")
-        print(f"   📝 Mô tả ngắn: {row['productDescription'][:120]}...")
+        print(f"   📝 Mô tả ngắn: {str(row['productDescription'])[:120]}...")
         print("-" * 30)
