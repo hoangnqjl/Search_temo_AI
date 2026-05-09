@@ -1,11 +1,8 @@
-fastapi
-uvicorn
-sentence-transformers
-openai
-pydantic
-numpy
-python-dotenv
-transformers
+transformers==4.47.1
+sentencepiece==0.2.0
+tokenizers>=0.19.0
 torch
-sentencepiece
 pandas
+scikit-learn
+numpy
+tqdm
