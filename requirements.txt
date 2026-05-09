@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sentence-transformers
+openai
+pydantic
+numpy
+python-dotenv
+transformers
+torch
+sentencepiece
+pandas
