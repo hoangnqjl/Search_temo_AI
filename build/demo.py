@@ -35,13 +35,15 @@ def run_demo(query):
         return_tensors="pt"
     ).to(device)
 
-    # Generate output
+    # Generate output với các tham số tối ưu để chống lặp từ
     with torch.no_grad():
         outputs = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            max_length=256,
-            num_beams=4,
+            max_length=128,                # Rút ngắn độ dài để súc tích hơn
+            num_beams=5,                   # Tăng beam search để tìm kết quả tốt hơn
+            repetition_penalty=2.5,        # Phạt nặng việc lặp từ
+            no_repeat_ngram_size=3,        # Cấm lặp lại cụm 3 từ
             early_stopping=True
         )
 

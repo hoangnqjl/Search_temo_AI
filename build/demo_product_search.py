@@ -1,13 +1,14 @@
 import pandas as pd
 import torch
 import sys
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import AutoModel, AutoTokenizer
 import numpy as np
 import os
 
 # --- CẤU HÌNH ---
 IN_COLAB = 'google.colab' in sys.modules
-MODEL_NAME = "VietAI/vit5-base" 
+# Sử dụng model chuyên biệt cho tìm kiếm tiếng Việt để đạt độ chính xác cao nhất
+MODEL_NAME = "keepitreal/vietnamese-sbert" 
 PRODUCT_CSV = "data/products.csv"
 
 # Tự động quét model trên Drive nếu đang ở Colab
@@ -17,11 +18,11 @@ if IN_COLAB:
         MODEL_NAME = drive_model
         print(f">>> Đã tìm thấy model trên Drive: {MODEL_NAME}")
 
-print(">>> Đang khởi tạo hệ thống tìm kiếm thông minh MaroMart...")
+print(f">>> Đang khởi tạo hệ thống tìm kiếm SBERT: {MODEL_NAME}...")
 
-# 1. Load Model và Tokenizer (Bản Slow để tránh lỗi KeyError)
-tokenizer = T5Tokenizer.from_pretrained("VietAI/vit5-base", legacy=False)
-model = T5ForConditionalGeneration.from_pretrained(MODEL_NAME)
+# 1. Load Model và Tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModel.from_pretrained(MODEL_NAME)
 model.eval()
 
 # 2. Load dữ liệu sản phẩm thực tế
@@ -32,13 +33,13 @@ if not os.path.exists(PRODUCT_CSV):
 df = pd.read_csv(PRODUCT_CSV)
 df = df.fillna("") # Xử lý các ô trống
 
-# 3. Hàm tạo Vector đặc trưng (Embedding) bằng ViT5 Encoder
+# 3. Hàm tạo Vector đặc trưng (Embedding) bằng SBERT
 def get_embedding(text):
     inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=256)
     with torch.no_grad():
-        # Lấy giá trị trung bình của các hidden states từ Encoder để đại diện cho câu
-        outputs = model.encoder(**inputs)
-        embeddings = outputs.last_hidden_state.mean(dim=1)
+        # Lấy hidden state của token đầu tiên [CLS] làm vector đại diện cho câu
+        outputs = model(**inputs)
+        embeddings = outputs.last_hidden_state[:, 0, :]
     return embeddings.numpy()
 
 # 4. Mã hóa toàn bộ sản phẩm (Nên làm một lần và lưu lại)
