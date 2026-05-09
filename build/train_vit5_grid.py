@@ -3,7 +3,7 @@ import sys
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from transformers import T5ForConditionalGeneration, AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import T5ForConditionalGeneration, T5Tokenizer, get_linear_schedule_with_warmup
 from torch.optim import AdamW
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
@@ -19,8 +19,18 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-# Cấu hình thiết bị
+# Cấu hình thiết bị và đường dẫn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Tự động phát hiện Google Colab để cấu hình đường dẫn lưu vào Drive
+IN_COLAB = 'google.colab' in sys.modules
+if IN_COLAB:
+    SAVE_PATH = "/content/drive/MyDrive/Temo/search/file_train"
+    if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
+    print(f">>> Đang chạy trên Colab. Kết quả sẽ lưu vào Drive: {SAVE_PATH}")
+else:
+    SAVE_PATH = "data"
+    print(f">>> Đang chạy cục bộ. Kết quả sẽ lưu vào: {SAVE_PATH}")
 
 class MaroMartDataset(Dataset):
     def __init__(self, dataframe, tokenizer, max_input_len=128, max_target_len=256):
@@ -76,7 +86,7 @@ def calculate_metrics(preds, labels):
 
 def train_and_evaluate(config, train_df, val_df):
     model_name = "VietAI/vit5-base"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+    tokenizer = T5Tokenizer.from_pretrained(model_name, legacy=False)
     model = T5ForConditionalGeneration.from_pretrained(model_name)
     
     # Cấu hình Dropout
@@ -175,10 +185,11 @@ def main():
                 })
 
     # Lưu kết quả ra file JSON
-    with open("data/vit5_training_results.json", "w", encoding="utf-8") as f:
+    result_file = f"{SAVE_PATH}/vit5_training_results.json"
+    with open(result_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
 
-    print("\n✅ Hoàn tất Grid Search! Kết quả đã được lưu tại data/vit5_training_results.json")
+    print(f"\n✅ Hoàn tất Grid Search! Kết quả đã được lưu tại {result_file}")
 
 if __name__ == "__main__":
     main()

@@ -1,19 +1,26 @@
 import pandas as pd
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+import sys
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 import numpy as np
 import os
 
 # --- CẤU HÌNH ---
-# Sau khi bạn train xong trên Colab, hãy tải thư mục model về và để vào đường dẫn này
-# Hoặc trỏ trực tiếp vào thư mục chứa weights nếu bạn chạy trên máy có GPU
+IN_COLAB = 'google.colab' in sys.modules
 MODEL_NAME = "VietAI/vit5-base" 
 PRODUCT_CSV = "data/products.csv"
 
+# Tự động quét model trên Drive nếu đang ở Colab
+if IN_COLAB:
+    drive_model = "/content/drive/MyDrive/Temo/search/file_train/best_model"
+    if os.path.exists(drive_model):
+        MODEL_NAME = drive_model
+        print(f">>> Đã tìm thấy model trên Drive: {MODEL_NAME}")
+
 print(">>> Đang khởi tạo hệ thống tìm kiếm thông minh MaroMart...")
 
-# 1. Load Model và Tokenizer
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+# 1. Load Model và Tokenizer (Bản Slow để tránh lỗi KeyError)
+tokenizer = T5Tokenizer.from_pretrained("VietAI/vit5-base", legacy=False)
 model = T5ForConditionalGeneration.from_pretrained(MODEL_NAME)
 model.eval()
 

@@ -1,11 +1,24 @@
 import torch
-from transformers import T5ForConditionalGeneration, AutoTokenizer
+import sys
+import os
+from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-def run_demo(query, model_path="VietAI/vit5-base"):
-    print(f"\n🔍 Đang tìm kiếm cho câu hỏi: '{query}'")
+def run_demo(query):
+    print(f"\n🔍 Đang phân tích câu hỏi: '{query}'")
     
+    # Tự động chọn model: Ưu tiên model đã train trên Drive, nếu không có thì dùng model gốc
+    IN_COLAB = 'google.colab' in sys.modules
+    model_path = "VietAI/vit5-base" # Mặc định
+    
+    if IN_COLAB:
+        # Đường dẫn trên Drive (Bạn có thể sửa lại cho đúng folder lưu model của mình)
+        drive_model = "/content/drive/MyDrive/Temo/search/file_train/best_model"
+        if os.path.exists(drive_model):
+            model_path = drive_model
+            print(f"✅ Đã tìm thấy model đã huấn luyện trên Drive: {model_path}")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained("VietAI/vit5-base")
+    tokenizer = T5Tokenizer.from_pretrained("VietAI/vit5-base", legacy=False)
     model = T5ForConditionalGeneration.from_pretrained(model_path)
     model.to(device)
     model.eval()
