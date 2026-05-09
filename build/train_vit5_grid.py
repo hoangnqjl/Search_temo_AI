@@ -79,20 +79,15 @@ class MaroMartDataset(Dataset):
             "labels": labels
         }
 
-def calculate_metrics(preds, labels):
-    # Đưa về dạng 1D để tính metrics
-    preds = preds.flatten()
-    labels = labels.flatten()
+def calculate_metrics(preds_text, labels_text):
+    # Tính điểm dựa trên việc so khớp chuỗi văn bản thực tế
+    if len(labels_text) == 0: return 0.0, 0.0, 0.0, 0.0
     
-    # Lọc bỏ phần padding (thường là 0)
-    mask = labels != 0
-    preds = preds[mask]
-    labels = labels[mask]
+    matches = sum([1 for p, l in zip(preds_text, labels_text) if p.strip().lower() == l.strip().lower()])
+    acc = matches / len(labels_text)
     
-    acc = accuracy_score(labels, preds)
-    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted', zero_division=0)
-    
-    return acc, precision, recall, f1
+    # Trả về các chỉ số đồng nhất dựa trên độ chính xác chuỗi (Exact Match)
+    return acc, acc, acc, acc
 
 def train_and_evaluate(config, train_df, val_df):
     model_name = "VietAI/vit5-base"
@@ -112,8 +107,8 @@ def train_and_evaluate(config, train_df, val_df):
     optimizer = AdamW(model.parameters(), lr=config['lr'])
     scaler = torch.cuda.amp.GradScaler()
     
-    # Training Loop (đơn giản hóa cho Grid Search)
-    epochs = 3
+    # Training Loop
+    epochs = 15
     for epoch in range(epochs):
         model.train()
         train_bar = tqdm(train_loader, desc=f"   Epoch {epoch+1}/{epochs}", leave=False)
@@ -135,26 +130,33 @@ def train_and_evaluate(config, train_df, val_df):
             train_bar.set_postfix(loss=f"{loss.item():.4f}")
 
     # Evaluation
-    model.eval()
     def get_scores(loader, desc="Evaluating"):
-        all_preds = []
-        all_labels = []
+        model.eval()
+        all_preds_text = []
+        all_labels_text = []
         with torch.no_grad():
             eval_bar = tqdm(loader, desc=f"   {desc}", leave=False)
             for batch in eval_bar:
                 input_ids = batch["input_ids"].to(device)
-                labels = batch["labels"].to(device)
-                outputs = model.generate(input_ids=input_ids, max_length=256)
+                attention_mask = batch["attention_mask"].to(device)
+                labels = batch["labels"]
                 
-                # Padding outputs to match labels length for metric calculation
-                padded_outputs = torch.zeros_like(labels)
-                limit = min(outputs.shape[1], labels.shape[1])
-                padded_outputs[:, :limit] = outputs[:, :limit]
+                # AI viết câu trả lời
+                outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_length=128)
                 
-                all_preds.append(padded_outputs.cpu().numpy())
-                all_labels.append(labels.cpu().numpy())
+                # Giải mã sang văn bản
+                preds_batch = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                
+                # Giải mã nhãn mẫu (xử lý -100)
+                labels_ids = labels.clone()
+                labels_ids[labels_ids == -100] = tokenizer.pad_token_id
+                labels_batch = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
+                
+                # LƯU LẠI (Đây là phần quan trọng nhất!)
+                all_preds_text.extend(preds_batch)
+                all_labels_text.extend(labels_batch)
         
-        return calculate_metrics(np.concatenate(all_preds), np.concatenate(all_labels))
+        return calculate_metrics(all_preds_text, all_labels_text)
 
     train_acc, train_pre, train_rec, train_f1 = get_scores(train_loader, "Eval Train")
     val_acc, val_pre, val_rec, val_f1 = get_scores(val_loader, "Eval Val")
