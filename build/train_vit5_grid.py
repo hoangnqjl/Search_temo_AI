@@ -22,11 +22,17 @@ if sys.stdout.encoding != 'utf-8':
 # Cấu hình thiết bị và đường dẫn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Tự động phát hiện Google Colab để cấu hình đường dẫn lưu vào Drive
-IN_COLAB = 'google.colab' in sys.modules
+# Tự động phát hiện Google Colab (kiểm tra đường dẫn hệ thống)
+IN_COLAB = os.path.exists('/content')
 if IN_COLAB:
+    # Đảm bảo đường dẫn lưu vào Drive
     SAVE_PATH = "/content/drive/MyDrive/Temo/search/file_train"
-    if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
+    if not os.path.exists(SAVE_PATH): 
+        try:
+            os.makedirs(SAVE_PATH, exist_ok=True)
+        except:
+            print("⚠️ Cảnh báo: Không thể tạo thư mục trên Drive. Kiểm tra xem bạn đã Mount Drive chưa?")
+            SAVE_PATH = "data"
     print(f">>> Đang chạy trên Colab. Kết quả sẽ lưu vào Drive: {SAVE_PATH}")
 else:
     SAVE_PATH = "data"
