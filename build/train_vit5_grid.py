@@ -190,12 +190,14 @@ def main():
                     "metrics": scores
                 })
 
-    # Lưu kết quả ra file JSON
-    result_file = f"{SAVE_PATH}/vit5_training_results.json"
-    with open(result_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=4)
+                # Lưu kết quả liên tục sau mỗi tổ hợp để tránh mất dữ liệu
+                result_file = f"{SAVE_PATH}/vit5_training_results.json"
+                with open(result_file, "w", encoding="utf-8") as f:
+                    json.dump(results, f, ensure_ascii=False, indent=4)
+                
+                print(f"--- 💾 Đã lưu kết quả tổ hợp {count} vào Drive ---")
 
-    print(f"\n✅ Hoàn tất Grid Search! Kết quả đã được lưu tại {result_file}")
+    print(f"\n✅ Hoàn tất Grid Search! Toàn bộ kết quả đã ở tại {SAVE_PATH}")
 
 if __name__ == "__main__":
     main()
