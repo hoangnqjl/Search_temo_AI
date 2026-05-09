@@ -158,7 +158,7 @@ def train_and_evaluate(config, train_df, val_df):
     return {
         "train": {"accuracy": train_acc, "precision": train_pre, "recall": train_rec, "f1": train_f1},
         "val": {"accuracy": val_acc, "precision": val_pre, "recall": val_rec, "f1": val_f1}
-    }
+    }, model
 
 def main():
     print(">>> Bắt đầu chuẩn bị dữ liệu...")
@@ -170,21 +170,57 @@ def main():
     batch_sizes = [8, 16, 32]
     learning_rates = [1e-5, 3e-5, 5e-5]
 
+    # Đọc kết quả cũ từ Drive để hỗ trợ chạy tiếp (Resume)
+    result_file = f"{SAVE_PATH}/vit5_training_results.json"
     results = []
+    best_f1 = -1.0
+    completed_configs = []
+
+    if os.path.exists(result_file):
+        try:
+            with open(result_file, "r", encoding="utf-8") as f:
+                results = json.load(f)
+            for r in results:
+                completed_configs.append(r['config'])
+                f1 = r['metrics']['val']['f1']
+                if f1 > best_f1: best_f1 = f1
+            print(f">>> 📂 Tìm thấy {len(results)} tổ hợp đã chạy xong. Sẽ tự động bỏ qua.")
+            print(f">>> 🏆 Điểm F1 tốt nhất hiện tại: {best_f1:.4f}")
+        except Exception as e:
+            print(f"⚠️ Cảnh báo: Không thể đọc file kết quả cũ: {e}")
+
     total_configs = len(dropouts) * len(batch_sizes) * len(learning_rates)
     count = 0
 
-    print(f">>> Bắt đầu Grid Search với {total_configs} tổ hợp...")
+    print(f">>> 🚀 Bắt đầu Grid Search với {total_configs} tổ hợp...")
 
     for d in dropouts:
         for b in batch_sizes:
             for lr in learning_rates:
                 count += 1
                 config = {'dropout': d, 'batch_size': b, 'lr': lr}
-                print(f"[{count}/{total_configs}] Training with: {config}")
                 
-                scores = train_and_evaluate(config, train_df, val_df)
+                # Kiểm tra xem tổ hợp này đã chạy chưa
+                if config in completed_configs:
+                    print(f"--- ⏩ [{count}/{total_configs}] Bỏ qua: {config} (Đã có kết quả) ---")
+                    continue
+
+                print(f"--- 🛠️ [{count}/{total_configs}] Đang huấn luyện: {config} ---")
                 
+                scores, model = train_and_evaluate(config, train_df, val_df)
+                
+                # Kiểm tra và lưu model tốt nhất
+                current_f1 = scores['val']['f1']
+                if current_f1 > best_f1:
+                    best_f1 = current_f1
+                    model_path = f"{SAVE_PATH}/best_model"
+                    model.save_pretrained(model_path)
+                    # Load lại tokenizer để lưu cùng model
+                    from transformers import T5Tokenizer
+                    tokenizer = T5Tokenizer.from_pretrained("VietAI/vit5-base", legacy=False)
+                    tokenizer.save_pretrained(model_path)
+                    print(f"🌟 MỚI: Đã tìm thấy model tốt nhất với F1={best_f1:.4f}. Đã lưu vào {model_path}")
+
                 results.append({
                     "config": config,
                     "metrics": scores
