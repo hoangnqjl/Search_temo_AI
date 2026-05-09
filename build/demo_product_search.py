@@ -70,9 +70,19 @@ def refine_query(query):
         inputs = v_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True).to(v_model.device)
         
         with torch.no_grad():
-            outputs = v_model.generate(**inputs, max_length=50)
+            # Tối ưu việc sinh từ khóa: Ngắn gọn, không lặp
+            outputs = v_model.generate(
+                **inputs, 
+                max_length=30, 
+                num_beams=5,
+                repetition_penalty=2.5, 
+                no_repeat_ngram_size=3,
+                early_stopping=True
+            )
             refined = v_tokenizer.decode(outputs[0], skip_special_tokens=True)
             if refined.strip():
+                # Chỉ lấy phần văn bản chính, bỏ qua các ký tự lạ
+                refined = refined.replace("*", "").strip()
                 print(f"✨ AI hiểu nhu cầu: '{refined}'")
                 return refined
         return query
