@@ -50,7 +50,7 @@ class MaroMartDataset(Dataset):
 
     def __getitem__(self, index):
         row = self.data.iloc[index]
-        input_text = str(row['input'])
+        input_text = "intent: " + str(row['input'])
         target_text = str(row['product_title']) + " - " + str(row['product_description'])
 
         inputs = self.tokenizer.encode_plus(
@@ -69,10 +69,14 @@ class MaroMartDataset(Dataset):
             return_tensors="pt"
         )
 
+        labels = targets["input_ids"].flatten()
+        # Sửa lỗi quan trọng: Bỏ qua padding khi tính Loss để model không bị "câm"
+        labels[labels == self.tokenizer.pad_token_id] = -100
+
         return {
             "input_ids": inputs["input_ids"].flatten(),
             "attention_mask": inputs["attention_mask"].flatten(),
-            "labels": targets["input_ids"].flatten()
+            "labels": labels
         }
 
 def calculate_metrics(preds, labels):
@@ -166,9 +170,10 @@ def main():
     train_df, val_df = train_test_split(df, test_size=0.2, random_state=42)
 
     # Siêu tham số cho Grid Search
-    dropouts = [0.1, 0.3, 0.5]
-    batch_sizes = [8, 16, 32]
-    learning_rates = [1e-5, 3e-5, 5e-5]
+    # Rút gọn: Chạy 1 tổ hợp tốt nhất để tiết kiệm thời gian
+    dropouts = [0.1]
+    batch_sizes = [16]
+    learning_rates = [3e-5]
 
     # Đọc kết quả cũ từ Drive để hỗ trợ chạy tiếp (Resume)
     result_file = f"{SAVE_PATH}/vit5_training_results.json"

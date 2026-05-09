@@ -23,9 +23,12 @@ def run_demo(query):
     model.to(device)
     model.eval()
 
+    # Thêm prefix giống như lúc train để model hiểu nhiệm vụ
+    query_with_prefix = "intent: " + query
+    
     # Encode input
     inputs = tokenizer.encode_plus(
-        query,
+        query_with_prefix,
         max_length=128,
         padding='max_length',
         truncation=True,
