@@ -51,7 +51,8 @@ class MaroMartDataset(Dataset):
     def __getitem__(self, index):
         row = self.data.iloc[index]
         input_text = "intent: " + str(row['input'])
-        target_text = str(row['product_title']) + " - " + str(row['product_description'])
+        # Chỉ học Tên sản phẩm để AI tập trung vào việc nhận diện đúng sản phẩm (Intent)
+        target_text = str(row['product_title'])
 
         inputs = self.tokenizer.encode_plus(
             input_text,

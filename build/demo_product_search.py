@@ -45,9 +45,13 @@ def get_embedding(text):
 
 # 4. Mã hóa toàn bộ sản phẩm (Nên làm một lần và lưu lại)
 print(f">>> Đang mã hóa {len(df)} sản phẩm. Vui lòng đợi trong giây lát...")
-product_texts = (df['productName'] + " " + df['productDescription'] + " " + df['categoryName']).tolist()
-product_embeddings = []
 
+# Gộp cả Danh mục + Tên + Mô tả để AI tìm kiếm đa chiều
+product_texts = [
+    f"{row['categoryName']} {row['productName']} {row['productDescription']}" 
+    for _, row in df.iterrows()
+]
+product_embeddings = []
 for text in product_texts:
     product_embeddings.append(get_embedding(text))
 
