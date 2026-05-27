@@ -21,6 +21,8 @@ def generate_queries():
     
     # 1. Đọc dữ liệu gốc
     dataset_path = "data/semantic_dataset.csv"
+    products_path = "data/products.csv"
+    
     if not os.path.exists(dataset_path):
         print(f"❌ Không tìm thấy file {dataset_path}!")
         return
@@ -28,9 +30,37 @@ def generate_queries():
     df_orig = pd.read_csv(dataset_path)
     print(f">>> Đã đọc dữ liệu gốc: {len(df_orig)} dòng.")
     
-    # Lấy danh sách sản phẩm độc bản từ dữ liệu gốc
-    products = df_orig[['product_title', 'product_description', 'is_new']].drop_duplicates().to_dict('records')
-    print(f">>> Tìm thấy {len(products)} sản phẩm độc bản để sinh dữ liệu.")
+    # Kết hợp sản phẩm từ cả hai nguồn để đảm bảo phủ 100%
+    products_dict = {}
+    
+    # 1.1 Thêm từ semantic_dataset.csv
+    for _, row in df_orig.iterrows():
+        title = clean_text(row['product_title'])
+        if title:
+            products_dict[title] = {
+                'product_title': title,
+                'product_description': clean_text(row.get('product_description', '')),
+                'is_new': row.get('is_new', False)
+            }
+            
+    # 1.2 Thêm từ products.csv (các sản phẩm thực tế trong store)
+    if os.path.exists(products_path):
+        df_prod = pd.read_csv(products_path)
+        print(f">>> Tìm thấy danh sách sản phẩm thực tế trong products.csv: {len(df_prod)} dòng.")
+        for _, row in df_prod.iterrows():
+            title = clean_text(row.get('productName', ''))
+            desc = clean_text(row.get('productDescription', ''))
+            cond = str(row.get('productCondition', '')).lower()
+            is_new = 'new' in cond or 'mới' in cond or 'like new' in cond
+            if title and title not in products_dict:
+                products_dict[title] = {
+                    'product_title': title,
+                    'product_description': desc,
+                    'is_new': is_new
+                }
+                
+    products = list(products_dict.values())
+    print(f">>> Tổng cộng tìm thấy {len(products)} sản phẩm độc bản bao phủ toàn bộ hệ thống để sinh dữ liệu.")
     
     # 2. Xây dựng bộ từ vựng và cấu trúc hội thoại đời thường của người Việt
     xung_ho_dau = [

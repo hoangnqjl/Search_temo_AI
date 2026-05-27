@@ -126,11 +126,12 @@ def get_token_f1(pred, label):
     pred_tokens = str(pred).strip().lower().split()
     label_tokens = str(label).strip().lower().split()
     if len(pred_tokens) == 0 or len(label_tokens) == 0:
-        return 1.0 if pred_tokens == label_tokens else 0.0
+        val = 1.0 if pred_tokens == label_tokens else 0.0
+        return val, val, val
     common = Counter(pred_tokens) & Counter(label_tokens)
     num_same = sum(common.values())
     if num_same == 0:
-        return 0.0
+        return 0.0, 0.0, 0.0
     precision = num_same / len(pred_tokens)
     recall = num_same / len(label_tokens)
     f1 = 2 * precision * recall / (precision + recall)
@@ -214,8 +215,7 @@ def train_and_evaluate(config, train_df, val_df):
                     outputs = model.generate(
                         input_ids=input_ids, 
                         attention_mask=attention_mask, 
-                        max_new_tokens=48,
-                        early_stopping=True
+                        max_new_tokens=48
                     )
                 
                 preds_batch = tokenizer.batch_decode(outputs, skip_special_tokens=True)
