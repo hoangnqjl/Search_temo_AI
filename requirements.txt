@@ -2,6 +2,10 @@ transformers==4.47.1
 sentencepiece==0.2.0
 tokenizers>=0.19.0
 torch
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+sentence-transformers>=2.7.0
+pymysql>=1.1.0
 pandas
 scikit-learn
 numpy
