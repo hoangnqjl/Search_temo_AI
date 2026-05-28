@@ -197,7 +197,8 @@ def train_and_evaluate(config, train_df, val_df):
         num_training_steps=total_steps
     )
     
-    scaler = torch.cuda.amp.GradScaler()
+    use_amp = (device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     
     # Đánh giá độc lập trên validation
     def evaluate_model(loader):
@@ -211,7 +212,7 @@ def train_and_evaluate(config, train_df, val_df):
                 labels = batch["labels"]
                 
                 # AI sinh câu trả lời trong mixed precision tự động tăng tốc và tối ưu VRAM
-                with torch.cuda.amp.autocast():
+                with torch.cuda.amp.autocast(enabled=use_amp):
                     outputs = model.generate(
                         input_ids=input_ids, 
                         attention_mask=attention_mask, 
@@ -237,6 +238,7 @@ def train_and_evaluate(config, train_df, val_df):
     patience = 6
     epochs_no_improve = 0
     model_path = f"{SAVE_PATH}/best_model"
+    history = []
 
     print(">>> Bắt đầu huấn luyện...")
     for epoch in range(epochs):
@@ -250,8 +252,8 @@ def train_and_evaluate(config, train_df, val_df):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             
-            # Sử dụng Mixed Precision (FP16) để tiết kiệm VRAM
-            with torch.cuda.amp.autocast():
+            # Sử dụng Mixed Precision (FP16) để tiết kiệm VRAM nếu dùng GPU
+            with torch.cuda.amp.autocast(enabled=use_amp):
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss
             
@@ -274,6 +276,16 @@ def train_and_evaluate(config, train_df, val_df):
         val_acc, val_pre, val_rec, val_f1 = evaluate_model(val_loader)
         print(f"   Epoch {epoch+1:02d} | Loss: {avg_loss:.4f} | Val F1: {val_f1:.4f} | Val Acc (EM): {val_acc:.4f}")
         
+        # Ghi nhận quá trình huấn luyện của epoch này
+        history.append({
+            "epoch": epoch + 1,
+            "loss": float(avg_loss),
+            "val_f1": float(val_f1),
+            "val_accuracy": float(val_acc),
+            "val_precision": float(val_pre),
+            "val_recall": float(val_rec)
+        })
+
         # Lưu model tốt nhất
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
@@ -296,10 +308,12 @@ def train_and_evaluate(config, train_df, val_df):
     train_acc, train_pre, train_rec, train_f1 = evaluate_model(train_loader)
     val_acc, val_pre, val_rec, val_f1 = evaluate_model(val_loader)
 
-    return {
+    scores = {
         "train": {"accuracy": train_acc, "precision": train_pre, "recall": train_rec, "f1": train_f1},
         "val": {"accuracy": val_acc, "precision": val_pre, "recall": val_rec, "f1": val_f1}
-    }, best_model
+    }
+
+    return scores, best_model, history
 
 def main():
     print(">>> Bắt đầu chuẩn bị dữ liệu...")
@@ -320,10 +334,10 @@ def main():
     print(f">>> Phân phối dữ liệu: Train = {len(train_df)} dòng | Val = {len(val_df)} dòng.")
 
     # Siêu tham số tối ưu đã được thiết lập trực tiếp để rút ngắn thời gian và tối ưu VRAM
-    config = {'dropout': 0.1, 'batch_size': 16, 'lr': 5e-5}
+    config = {'dropout': 0.3, 'batch_size': 16, 'lr': 5e-5}
 
     print(f"--- 🛠️ Cấu hình huấn luyện: {config} ---")
-    scores, model = train_and_evaluate(config, train_df, val_df)
+    scores, model, history = train_and_evaluate(config, train_df, val_df)
     
     # In báo cáo kết quả chi tiết theo yêu cầu của bạn
     print("\n" + "="*50)
@@ -342,12 +356,13 @@ def main():
     print(f"  - F1-Score (Token):       {scores['val']['f1']*100:.2f}%")
     print("="*50 + "\n")
 
-    # Ghi nhận kết quả huấn luyện vào tệp JSON
+    # Ghi nhận kết quả huấn luyện và toàn bộ lịch sử vào tệp JSON để vẽ biểu đồ visualize
     result_file = f"{SAVE_PATH}/vit5_training_results.json"
-    results = [{
+    results = {
         "config": config,
-        "metrics": scores
-    }]
+        "metrics": scores,
+        "history": history
+    }
     with open(result_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
     print(f"✅ Đã cập nhật báo cáo và lưu kết quả vào: {result_file}")

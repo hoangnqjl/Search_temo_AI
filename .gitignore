@@ -1,0 +1,17 @@
+# Model training output and heavy weights
+file_train/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+ENV/
+env/

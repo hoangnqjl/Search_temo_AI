@@ -180,7 +180,10 @@ def load_products(force: bool = False) -> List[Dict[str, Any]]:
 
 
 def strip_accents(value: str) -> str:
-    normalized = unicodedata.normalize("NFD", value or "")
+    if not value:
+        return ""
+    value = value.replace("đ", "d").replace("Đ", "d")
+    normalized = unicodedata.normalize("NFD", value)
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
 
 
@@ -465,8 +468,10 @@ def success_response(query: str, ranked: Dict[str, Any], source: str) -> Dict[st
     }
 
 
-@app.on_event("startup")
-def startup() -> None:
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     if os.getenv("LOAD_VIT5_ON_STARTUP", "false").lower() == "true":
         load_vit5_model()
     load_sentence_model()
@@ -474,6 +479,9 @@ def startup() -> None:
         load_products(force=True)
     except Exception:
         pass
+    yield
+
+app.router.lifespan_context = lifespan
 
 
 @app.get("/health")
@@ -579,4 +587,10 @@ if __name__ == "__main__":
 
     host = os.getenv("AI_HOST", "0.0.0.0")
     port = int(os.getenv("AI_PORT", "8000"))
+
+    # Add parent directory of 'api' to sys.path to allow importing 'api.main'
+    parent_dir = str(Path(__file__).resolve().parents[1])
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
     uvicorn.run("api.main:app", host=host, port=port, reload=False)

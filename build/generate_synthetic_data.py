@@ -136,7 +136,7 @@ def generate_queries():
         
         # Chọn từ viết tắt của sản phẩm
         abbreviation = clean_title
-        if "điện thoại" in lower_title or "iphone" in lower_title or "samsung" in lower_title:
+        if "điện thoại" in lower_title or "iphone" in lower_title or ("samsung" in lower_title and "tủ" not in lower_title and "máy" not in lower_title):
             abbreviation = random.choice(["đt", "điện thoại", "máy", "con máy", "con đt"])
         elif "laptop" in lower_title or "dell" in lower_title or "lenovo" in lower_title or "asus" in lower_title or "acer" in lower_title:
             abbreviation = random.choice(["lap", "laptop", "máy", "con lap", "máy tính"])
