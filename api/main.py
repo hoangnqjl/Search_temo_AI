@@ -248,6 +248,13 @@ STOPWORDS = {
     "de",
     "re",
     "tot",
+    "trieu",
+    "tr",
+    "tram",
+    "ngan",
+    "k",
+    "dong",
+    "vnd",
 }
 
 
@@ -368,14 +375,35 @@ def refine_query(query: str) -> str:
         return query
 
 
-def lexical_score(query: str, refined_query: str, product: Dict[str, Any], budget: Optional[float]) -> Tuple[float, str]:
+def parse_vit5_intent(refined: str) -> Dict[str, Any]:
+    intent = {"keyword": "", "condition": "", "budget": None}
+    if "keyword:" not in refined and "budget:" not in refined and "|" not in refined:
+        intent["keyword"] = refined
+        return intent
+        
+    parts = refined.split("|")
+    for part in parts:
+        if ":" in part:
+            k, v = part.split(":", 1)
+            k = k.strip().lower()
+            v = v.strip().lower()
+            if k == "keyword": intent["keyword"] = v
+            elif k == "condition": intent["condition"] = v
+            elif k == "budget": 
+                try: intent["budget"] = float(v)
+                except: pass
+    return intent
+
+
+def lexical_score(query: str, keyword: str, condition: str, product: Dict[str, Any], budget: Optional[float]) -> Tuple[float, str]:
     text = normalize_text(product_text(product))
-    combined_query = f"{query} {refined_query}".strip()
+    combined_query = f"{query} {keyword}".strip()
     tokens = query_tokens(combined_query)
     if not tokens:
         return 0.0, "Không đủ từ khóa để so khớp"
 
-    matched_tokens = [token for token in tokens if token in text]
+    text_words = set(text.split())
+    matched_tokens = [token for token in tokens if token in text_words]
     score = len(set(matched_tokens)) / max(1, len(set(tokens)))
 
     product_name = normalize_text(str(product.get("productName", "")))
@@ -387,6 +415,11 @@ def lexical_score(query: str, refined_query: str, product: Dict[str, Any], budge
     if brand and brand in normalized_query:
         score += 0.12
 
+    # --- TYPE MATCH BOOST ---
+    product_type = normalize_text(product.get("productAttribute", {}).get("type", ""))
+    if product_type and (product_type in normalized_query or any(t in product_type for t in tokens)):
+        score += 0.25
+
     price = float(product.get("productPrice") or 0)
     if budget:
         if price <= budget:
@@ -395,6 +428,38 @@ def lexical_score(query: str, refined_query: str, product: Dict[str, Any], budge
             score *= 0.9
         else:
             score *= max(0.1, min(1.0, budget / max(price, 1)))
+            
+    # --- CONDITION BOOST ---
+    product_cond = normalize_text(str(product.get("productCondition", "")))
+    if condition == "cũ" and ("cũ" in product_cond or "used" in product_cond or "99" in product_cond or "2hand" in product_cond):
+        score += 0.2
+    elif condition == "mới" and ("mới" in product_cond or "new" in product_cond or "seal" in product_cond):
+        score += 0.2
+
+    # --- ACCESSORY SPAM PENALTY ---
+    accessories = {"sac", "cap", "op", "cuong", "luc", "tai", "nghe", "loa", "ban", "phim", "chuot"}
+    main_devices = {"dien", "thoai", "laptop", "tablet", "ipad", "macbook", "tinh"}
+    
+    has_main_device_query = any(token in tokens for token in main_devices)
+    product_name_words = set(product_name.split())
+    has_accessory_product = any(word in product_name_words for word in accessories)
+    is_main_device_product = any(dev in product_type for dev in ["dien thoai", "laptop", "tablet", "ipad", "macbook", "may tinh"])
+    
+    if has_main_device_query and has_accessory_product and not is_main_device_product:
+        score *= 0.3
+
+    # --- VIETNAMESE COMPOUND SAFEGUARD ---
+    vietnamese_compounds = [
+        {"dien", "thoai"},
+        {"may", "tinh"},
+        {"ban", "phim"},
+        {"tai", "nghe"}
+    ]
+    for compound in vietnamese_compounds:
+        if compound.issubset(tokens):
+            matched_compound_parts = compound.intersection(matched_tokens)
+            if matched_compound_parts and len(matched_compound_parts) < len(compound):
+                score *= 0.1
 
     reason = "Khớp từ khóa: " + (", ".join(sorted(set(matched_tokens))) if matched_tokens else "ít")
     if budget:
@@ -427,12 +492,17 @@ def rank_products(
         load_vit5_model()
 
     refined_query = refine_query(query) if use_model else query
-    budget = extract_budget(query)
-    semantic_scores = sentence_scores(refined_query, products)
+    intent = parse_vit5_intent(refined_query) if use_model else {"keyword": query, "condition": "", "budget": None}
+    
+    budget = intent.get("budget") or extract_budget(query)
+    keyword = intent.get("keyword") or query
+    condition = intent.get("condition") or ""
+
+    semantic_scores = sentence_scores(keyword, products)
 
     ranked: List[Dict[str, Any]] = []
     for index, product in enumerate(products):
-        lexical, reason = lexical_score(query, refined_query, product, budget)
+        lexical, reason = lexical_score(query, keyword, condition, product, budget)
         semantic = semantic_scores[index] if semantic_scores is not None else None
         score = (semantic * 0.7 + lexical * 0.3) if semantic is not None else lexical
 
@@ -444,10 +514,19 @@ def rank_products(
         ranked.append(item)
 
     ranked.sort(key=lambda item: item["score"], reverse=True)
+    
+    # Filter by similarity threshold to discard irrelevant results
+    MIN_SCORE_THRESHOLD = 0.45
+    filtered_ranked = [item for item in ranked if item["score"] >= MIN_SCORE_THRESHOLD]
+    
+    # Safeguard: if all items are below threshold, return empty list to avoid showing irrelevant results
+    if not filtered_ranked and ranked:
+        filtered_ranked = []
+        
     return {
         "refinedQuery": refined_query,
         "budget": budget,
-        "items": ranked[:limit],
+        "items": filtered_ranked[:limit],
     }
 
 
