@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-from transformers import T5ForConditionalGeneration, T5Tokenizer, get_linear_schedule_with_warmup
+from transformers import T5ForConditionalGeneration, T5Tokenizer, get_cosine_schedule_with_warmup
 from torch.optim import AdamW
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -69,7 +69,7 @@ class MaroMartDataset(Dataset):
     def __getitem__(self, index):
         row = self.data.iloc[index]
         input_text = "intent: " + clean_text(row['input'])
-        target_text = clean_text(row['product_title'])
+        target_text = clean_text(row['target_intent'])
 
         inputs = self.tokenizer.encode_plus(
             input_text,
@@ -187,11 +187,12 @@ def train_and_evaluate(config, train_df, val_df):
         pin_memory=True
     )
 
+    accumulation_steps = config.get('accumulation_steps', 2)
     optimizer = AdamW(model.parameters(), lr=config['lr'], weight_decay=0.01)
     
-    epochs = 40
-    total_steps = len(train_loader) * epochs
-    scheduler = get_linear_schedule_with_warmup(
+    epochs = 30
+    total_steps = (len(train_loader) // accumulation_steps) * epochs
+    scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=int(0.1 * total_steps),
         num_training_steps=total_steps
@@ -235,7 +236,7 @@ def train_and_evaluate(config, train_df, val_df):
         return calculate_metrics(all_preds_text, all_labels_text)
 
     best_val_f1 = -1.0
-    patience = 6
+    patience = 5
     epochs_no_improve = 0
     model_path = f"{SAVE_PATH}/best_model"
     history = []
@@ -246,8 +247,8 @@ def train_and_evaluate(config, train_df, val_df):
         train_bar = tqdm(train_loader, desc=f"   Epoch {epoch+1}/{epochs}", leave=False)
         total_loss = 0.0
         
-        for batch in train_bar:
-            optimizer.zero_grad()
+        optimizer.zero_grad()
+        for step_idx, batch in enumerate(train_bar):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -255,20 +256,23 @@ def train_and_evaluate(config, train_df, val_df):
             # Sử dụng Mixed Precision (FP16) để tiết kiệm VRAM nếu dùng GPU
             with torch.cuda.amp.autocast(enabled=use_amp):
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                loss = outputs.loss
+                loss = outputs.loss / accumulation_steps
             
             scaler.scale(loss).backward()
             
-            # Gradient clipping để tránh bùng nổ độ dốc
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            if (step_idx + 1) % accumulation_steps == 0 or (step_idx + 1) == len(train_loader):
+                # Gradient clipping để tránh bùng nổ độ dốc
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step()
+                optimizer.zero_grad()
             
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-            
-            total_loss += loss.item()
-            train_bar.set_postfix(loss=f"{loss.item():.4f}")
+            # Nhân ngược lại accumulation_steps để hiển thị loss gốc
+            total_loss += (loss.item() * accumulation_steps)
+            train_bar.set_postfix(loss=f"{(loss.item() * accumulation_steps):.4f}")
             
         avg_loss = total_loss / len(train_loader)
         
@@ -317,7 +321,7 @@ def train_and_evaluate(config, train_df, val_df):
 
 def main():
     print(">>> Bắt đầu chuẩn bị dữ liệu...")
-    dataset_file = "data/augmented_dataset.csv"
+    dataset_file = "data/new_dataset.csv"
     if not os.path.exists(dataset_file):
         print(f"❌ Không tìm thấy tệp {dataset_file}. Vui lòng chạy sinh dữ liệu trước!")
         return
@@ -326,15 +330,15 @@ def main():
     
     # Tiền xử lý dữ liệu trước khi train
     df['input'] = df['input'].apply(clean_text)
-    df['product_title'] = df['product_title'].apply(clean_text)
-    df = df.dropna(subset=['input', 'product_title'])
-    df = df[(df['input'] != "") & (df['product_title'] != "")]
+    df['target_intent'] = df['target_intent'].apply(clean_text)
+    df = df.dropna(subset=['input', 'target_intent'])
+    df = df[(df['input'] != "") & (df['target_intent'] != "")]
     
     train_df, val_df = train_test_split(df, test_size=0.2, random_state=42)
     print(f">>> Phân phối dữ liệu: Train = {len(train_df)} dòng | Val = {len(val_df)} dòng.")
 
     # Siêu tham số tối ưu đã được thiết lập trực tiếp để rút ngắn thời gian và tối ưu VRAM
-    config = {'dropout': 0.3, 'batch_size': 16, 'lr': 5e-5}
+    config = {'dropout': 0.1, 'batch_size': 16, 'lr': 5e-5, 'accumulation_steps': 2}
 
     print(f"--- 🛠️ Cấu hình huấn luyện: {config} ---")
     scores, model, history = train_and_evaluate(config, train_df, val_df)
