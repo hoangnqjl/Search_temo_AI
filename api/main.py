@@ -33,11 +33,18 @@ class SearchRequest(BaseModel):
     minPrice: Optional[float] = None
     maxPrice: Optional[float] = None
     refresh: bool = False
-    useModel: bool = False
+    useModel: bool = True
+    userContext: Optional[str] = None
 
 
 class RecommendRequest(SearchRequest):
     userContext: Optional[str] = None
+
+
+class EmbedRequest(BaseModel):
+    text: str
+    mode: Optional[str] = "local"
+
 
 
 @dataclass
@@ -332,7 +339,7 @@ def load_vit5_model() -> None:
 
 
 def load_sentence_model() -> None:
-    model_name = os.getenv("SENTENCE_MODEL_NAME", "")
+    model_name = os.getenv("SENTENCE_MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     if not model_name:
         return
 
@@ -343,6 +350,7 @@ def load_sentence_model() -> None:
         log(f"Loaded sentence model: {model_name}")
     except Exception as exc:
         log(f"Sentence model unavailable: {exc}")
+
 
 
 def refine_query(query: str) -> str:
@@ -377,21 +385,26 @@ def refine_query(query: str) -> str:
 
 def parse_vit5_intent(refined: str) -> Dict[str, Any]:
     intent = {"keyword": "", "condition": "", "budget": None}
-    if "keyword:" not in refined and "budget:" not in refined and "|" not in refined:
+    
+    # Use robust regex to extract keyword, condition, and budget
+    kw_match = re.search(r"keyword:\s*(.*?)(?=\s*(?:condition:|budget:|$))", refined, re.IGNORECASE)
+    cond_match = re.search(r"condition:\s*(.*?)(?=\s*(?:keyword:|budget:|$))", refined, re.IGNORECASE)
+    bg_match = re.search(r"budget:\s*(\d+(?:\.\d+)?)(?=\s*(?:keyword:|condition:|$))", refined, re.IGNORECASE)
+    
+    if kw_match:
+        intent["keyword"] = kw_match.group(1).strip().strip("|").strip()
+    if cond_match:
+        intent["condition"] = cond_match.group(1).strip().strip("|").strip()
+    if bg_match:
+        try:
+            intent["budget"] = float(bg_match.group(1).strip())
+        except:
+            pass
+            
+    # Fallback if no specific tags found
+    if not intent["keyword"] and "keyword:" not in refined and "budget:" not in refined and "condition:" not in refined:
         intent["keyword"] = refined
-        return intent
         
-    parts = refined.split("|")
-    for part in parts:
-        if ":" in part:
-            k, v = part.split(":", 1)
-            k = k.strip().lower()
-            v = v.strip().lower()
-            if k == "keyword": intent["keyword"] = v
-            elif k == "condition": intent["condition"] = v
-            elif k == "budget": 
-                try: intent["budget"] = float(v)
-                except: pass
     return intent
 
 
@@ -500,11 +513,39 @@ def rank_products(
 
     semantic_scores = sentence_scores(keyword, products)
 
+    tokens = query_tokens(query)
+    accessories = {"sac", "cap", "op", "cuong", "luc", "tai", "nghe", "loa", "ban", "phim", "chuot"}
+    main_devices = {"dien", "thoai", "laptop", "tablet", "ipad", "macbook", "tinh"}
+    
+    has_main_device_query = any(token in tokens for token in main_devices)
+    has_accessory_query = any(token in tokens for token in accessories)
+
     ranked: List[Dict[str, Any]] = []
     for index, product in enumerate(products):
         lexical, reason = lexical_score(query, keyword, condition, product, budget)
         semantic = semantic_scores[index] if semantic_scores is not None else None
         score = (semantic * 0.7 + lexical * 0.3) if semantic is not None else lexical
+
+        # Apply accessory spam penalty directly to final score when searching for main devices
+        if has_main_device_query and not has_accessory_query:
+            product_name = normalize_text(str(product.get("productName", "")))
+            product_name_words = set(product_name.split())
+            has_accessory_product = any(word in product_name_words for word in accessories)
+            product_type = normalize_text(product.get("productAttribute", {}).get("type", ""))
+            is_main_device_product = any(dev in product_type for dev in ["dien thoai", "laptop", "tablet", "ipad", "macbook", "may tinh"])
+            
+            if has_accessory_product and not is_main_device_product:
+                score *= 0.15
+                reason += "; phạt phụ kiện khi tìm thiết bị chính"
+
+        # Apply main device mismatch penalty directly to final score
+        product_type = normalize_text(product.get("productAttribute", {}).get("type", ""))
+        if "laptop" in tokens and product_type and "laptop" not in product_type:
+            score *= 0.05
+            reason += "; phạt sai lệch thiết bị (cần laptop)"
+        if ("dien" in tokens or "thoai" in tokens) and product_type and "dien thoai" not in product_type:
+            score *= 0.05
+            reason += "; phạt sai lệch thiết bị (cần điện thoại)"
 
         item = dict(product)
         item["score"] = round(float(score), 6)
@@ -516,7 +557,7 @@ def rank_products(
     ranked.sort(key=lambda item: item["score"], reverse=True)
     
     # Filter by similarity threshold to discard irrelevant results
-    MIN_SCORE_THRESHOLD = 0.45
+    MIN_SCORE_THRESHOLD = 0.35
     filtered_ranked = [item for item in ranked if item["score"] >= MIN_SCORE_THRESHOLD]
     
     # Safeguard: if all items are below threshold, return empty list to avoid showing irrelevant results
@@ -551,7 +592,8 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv("LOAD_VIT5_ON_STARTUP", "false").lower() == "true":
+    # Load ViT5 model on startup by default for smooth, instant response
+    if os.getenv("LOAD_VIT5_ON_STARTUP", "true").lower() == "true":
         load_vit5_model()
     load_sentence_model()
     try:
@@ -606,31 +648,79 @@ def product_sample(limit: int = Query(5, ge=1, le=50)) -> Dict[str, Any]:
 
 @app.post("/search")
 def search(request: SearchRequest) -> Dict[str, Any]:
+    query = request.query
+    if request.userContext:
+        query = f"{query}. Ngữ cảnh người dùng: {request.userContext}"
     products = load_products(force=request.refresh)
     filtered = filter_products(products, request.categoryId, request.minPrice, request.maxPrice)
-    ranked = rank_products(request.query, filtered, request.limit, request.useModel)
+    ranked = rank_products(query, filtered, request.limit, request.useModel)
     source = "mysql+vit5+lexical" if request.useModel else "mysql+lexical"
-    return success_response(request.query, ranked, source)
+    response = success_response(request.query, ranked, source)
+    response["advice"] = build_advice(request.query, ranked["items"])
+    return response
 
 
 @app.get("/search")
 def search_get(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    q: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
+    limit: Optional[int] = Query(None),
+    k: Optional[int] = Query(None),
     categoryId: Optional[str] = None,
     minPrice: Optional[float] = None,
     maxPrice: Optional[float] = None,
-    useModel: bool = False,
+    useModel: bool = True,
 ) -> Dict[str, Any]:
+    final_query = q or query
+    if not final_query or len(final_query.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Query text (q or query) is required")
+    final_limit = limit or k or DEFAULT_LIMIT
+    
     request = SearchRequest(
-        query=q,
-        limit=limit,
+        query=final_query,
+        limit=final_limit,
         categoryId=categoryId,
         minPrice=minPrice,
         maxPrice=maxPrice,
         useModel=useModel,
     )
     return search(request)
+
+
+@app.post("/embed")
+def embed(request: EmbedRequest) -> Dict[str, Any]:
+    if not state.sentence_model:
+        load_sentence_model()
+    if not state.sentence_model:
+        raise HTTPException(status_code=503, detail="Sentence model not loaded and unavailable.")
+    try:
+        embedding = state.sentence_model.encode([request.text], normalize_embeddings=True)[0].tolist()
+        return {"success": True, "embedding": embedding}
+    except Exception as exc:
+        log(f"Embedding generation failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/suggest")
+def suggest(
+    q: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
+    limit: int = 5,
+) -> Dict[str, Any]:
+    final_query = q or query
+    if not final_query:
+        return {"success": True, "data": []}
+    
+    products = load_products()
+    normalized = normalize_text(final_query)
+    matches = []
+    for p in products:
+        p_name = p.get("productName", "")
+        if normalized in normalize_text(p_name):
+            matches.append(p_name)
+            
+    unique_matches = sorted(list(set(matches)))
+    return {"success": True, "data": unique_matches[:limit]}
 
 
 @app.post("/recommend")
@@ -650,15 +740,31 @@ def recommend(request: RecommendRequest) -> Dict[str, Any]:
 def build_advice(query: str, items: List[Dict[str, Any]]) -> str:
     if not items:
         return "Chưa tìm thấy sản phẩm phù hợp với nhu cầu này."
-    best = items[0]
-    name = best.get("productName", "sản phẩm này")
-    price = best.get("productPrice", 0)
-    condition = best.get("productCondition", "")
-    return (
-        f"Gợi ý ưu tiên là {name} giá khoảng {int(float(price or 0)):,} VND"
-        f"{' tình trạng ' + condition if condition else ''}. "
-        f"Sản phẩm này có điểm phù hợp cao nhất với nhu cầu: {query}."
-    )
+    
+    count = len(items)
+    if count == 1:
+        best = items[0]
+        name = best.get("productName", "sản phẩm này")
+        price = best.get("productPrice", 0)
+        condition = best.get("productCondition", "")
+        cond_str = f" (tình trạng: {condition})" if condition else ""
+        return (
+            f"Mình tìm thấy 1 sản phẩm phù hợp nhất cho bạn:\n"
+            f"🌟 **{name}** - Giá: {int(float(price or 0)):,} VND{cond_str}.\n"
+            f"Sản phẩm này rất khớp với yêu cầu tìm kiếm của bạn!"
+        )
+    else:
+        intro = f"Mình tìm thấy {count} sản phẩm phù hợp cho nhu cầu của bạn:\n\n"
+        list_str = []
+        for index, item in enumerate(items):
+            name = item.get("productName", "sản phẩm")
+            price = item.get("productPrice", 0)
+            condition = item.get("productCondition", "")
+            cond_str = f" ({condition})" if condition else ""
+            list_str.append(f"{index + 1}. **{name}** - {int(float(price or 0)):,} VND{cond_str}")
+        
+        outro = "\n\nBạn xem danh sách chi tiết và các thẻ sản phẩm bên dưới để chọn lựa nhé!"
+        return intro + "\n".join(list_str) + outro
 
 
 if __name__ == "__main__":

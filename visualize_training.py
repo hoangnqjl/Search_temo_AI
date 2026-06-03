@@ -1,6 +1,11 @@
 import json
 import os
+import sys
 import matplotlib.pyplot as plt
+
+# Reconfigure stdout to use UTF-8 encoding on Windows
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 def visualize_training():
     results_path = "file_train/vit5_training_results.json"
@@ -71,7 +76,7 @@ def visualize_training():
     print(f"✅ Đã lưu biểu đồ Visualize quá trình mất mát và hội tụ tại: {save_path}")
     
     # Hiển thị
-    plt.show()
+    # plt.show()
 
 if __name__ == "__main__":
     visualize_training()

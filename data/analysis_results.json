@@ -1,0 +1,92 @@
+{
+    "total_rows": 5100,
+    "columns": [
+        "input",
+        "target_intent",
+        "product_title",
+        "is_new",
+        "category",
+        "product_type",
+        "preferences",
+        "recommended_products"
+    ],
+    "category_counts": {
+        "Thiết bị điện tử": 1570,
+        "Đồ gia dụng": 662,
+        "Thời trang": 453,
+        "Văn phòng": 362,
+        "Nội thất": 341,
+        "Xe cộ": 252,
+        "Bất động sản": 248,
+        "Sách & Truyện": 226,
+        "Dịch vụ": 198,
+        "Mẹ & Bé": 191,
+        "Thú cưng": 177,
+        "Đồ dùng cá nhân": 173,
+        "Giải trí & Sở thích": 136,
+        "Việc làm": 73,
+        "Ẩm thực": 38
+    },
+    "num_product_types": 86,
+    "top_product_types": {
+        "Laptop": 337,
+        "Điện thoại": 282,
+        "Bàn phím": 158,
+        "Ghế văn phòng": 140,
+        "Tai nghe": 135,
+        "Giày thể thao": 130,
+        "Máy hút bụi": 126,
+        "Tủ lạnh": 124,
+        "Nồi chiên không dầu": 123,
+        "Loa": 123,
+        "Gia sư": 119,
+        "Căn hộ/Chung cư": 118,
+        "Sofa": 117,
+        "Phòng trọ": 115,
+        "Máy in": 112
+    },
+    "is_new_counts": {
+        "true": 2708,
+        "false": 2392
+    },
+    "null_counts": {
+        "input": 0,
+        "target_intent": 0,
+        "product_title": 0,
+        "is_new": 0,
+        "category": 0,
+        "product_type": 0,
+        "preferences": 0,
+        "recommended_products": 1
+    },
+    "budget_stats": {
+        "min": 0.0,
+        "max": 4000000000.0,
+        "mean": 48347205.88235294,
+        "median": 3000000.0,
+        "has_budget_count": 5100
+    },
+    "samples": [
+        {
+            "input": "Em năm nhất CNTT  đang cần tìm một con laptop cũ tầm 10 triệu để học code Java với Python. Ưu tiên máy bền  bàn phím gõ sướng để chạy deadline cho thoải mái.",
+            "target_intent": "keyword: laptop | condition: cũ | budget: 10000000",
+            "category": "Thiết bị điện tử",
+            "product_type": "Laptop",
+            "recommended_products": "ThinkPad T14 | Dell Latitude 5420 | HP EliteBook 840 G8"
+        },
+        {
+            "input": "Chiếc iPhone cũ của mình vừa hỏng main không sửa được  giờ muốn đổi sang Samsung dùng cho mượt  ngân sách khoảng 8 triệu  muốn mua máy mới cho yên tâm bảo hành.",
+            "target_intent": "keyword: điện thoại | condition: mới | budget: 8000000",
+            "category": "Thiết bị điện tử",
+            "product_type": "Điện thoại",
+            "recommended_products": "Samsung Galaxy A15 | Samsung Galaxy A55 | Redmi Note 13"
+        },
+        {
+            "input": "Nhà em mới chuyển về chung cư  muốn tìm mua cái máy giặt lồng ngang cũ giá rẻ tầm 4-5 triệu cho tiết kiệm  miễn là máy còn dùng tốt  không kén chọn thương hiệu.",
+            "target_intent": "keyword: máy giặt | condition: cũ | budget: 5000000",
+            "category": "Đồ gia dụng",
+            "product_type": "Máy giặt",
+            "recommended_products": "LG Front Load 9kg | Electrolux UltimateCare 700 | Panasonic Inverter 9kg"
+        }
+    ]
+}
