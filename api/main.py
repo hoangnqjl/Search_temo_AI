@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE_URL = "mysql://temo:Temo@2026@10.94.104.24:9991/temo?charset=utf8mb4"
+DEFAULT_DATABASE_URL = "mysql://temo:Temo@2026@andrew.zapto.org:9991/temo?charset=utf8mb4"
 DEFAULT_MODEL_DIR = ROOT_DIR / "file_train" / "best_model"
 
 PRODUCT_CACHE_TTL_SECONDS = int(os.getenv("PRODUCT_CACHE_TTL_SECONDS", "300"))
